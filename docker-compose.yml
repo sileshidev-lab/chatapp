@@ -1,11 +1,168 @@
 services:
-  frontend: {}
-  user-service: {}
-  chat-service: {}
-  notification-service: {}
-  keycloak: {}
-  postgres: {}
-  kafka: {}
-  prometheus: {}
-  grafana: {}
+  postgres:
+    image: postgres:16-alpine
+    container_name: chatapp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.5.5
+    container_name: chatapp-keycloak
+    restart: unless-stopped
+    command:
+      - start
+      - --http-enabled=true
+      - --hostname=${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}
+      - --db=postgres
+      - --db-url-host=postgres
+      - --db-url-database=keycloak_db
+      - --db-username=${POSTGRES_USER:-postgres}
+      - --db-password=${POSTGRES_PASSWORD:-postgres}
+      - --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+      USER_SERVICE_CLIENT_SECRET: ${USER_SERVICE_CLIENT_SECRET:-user-service-secret}
+      CHAT_SERVICE_CLIENT_SECRET: ${CHAT_SERVICE_CLIENT_SECRET:-chat-service-secret}
+      NOTIFICATION_SERVICE_CLIENT_SECRET: ${NOTIFICATION_SERVICE_CLIENT_SECRET:-notification-service-secret}
+    ports:
+      - "8080:8080"
+      - "9000:9000"
+    volumes:
+      - ./infra/keycloak/realm-import:/opt/keycloak/data/import:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  kafka:
+    image: apache/kafka:4.1.1
+    container_name: chatapp-kafka
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+
+  user-service:
+    image: ${DOCKERHUB_NAMESPACE:-local}/chatapp-user-service:${IMAGE_TAG:-latest}
+    build:
+      context: ./user-service
+    container_name: chatapp-user-service
+    restart: unless-stopped
+    environment:
+      SERVER_PORT: ${USER_SERVICE_PORT:-8081}
+      DB_URL: jdbc:postgresql://postgres:5432/user_db
+      DB_USERNAME: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      JWT_ISSUER_URI: ${BACKEND_JWT_ISSUER_URI:-http://host.docker.internal:8080/realms/chatapp}
+      APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+    ports:
+      - "${USER_SERVICE_PORT:-8081}:8081"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+
+  chat-service:
+    image: ${DOCKERHUB_NAMESPACE:-local}/chatapp-chat-service:${IMAGE_TAG:-latest}
+    build:
+      context: ./chat-service
+    container_name: chatapp-chat-service
+    restart: unless-stopped
+    environment:
+      SERVER_PORT: ${CHAT_SERVICE_PORT:-8082}
+      DB_URL: jdbc:postgresql://postgres:5432/chat_db
+      DB_USERNAME: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      JWT_ISSUER_URI: ${BACKEND_JWT_ISSUER_URI:-http://host.docker.internal:8080/realms/chatapp}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+    ports:
+      - "${CHAT_SERVICE_PORT:-8082}:8082"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+      kafka:
+        condition: service_started
+
+  notification-service:
+    image: ${DOCKERHUB_NAMESPACE:-local}/chatapp-notification-service:${IMAGE_TAG:-latest}
+    build:
+      context: ./notification-service
+    container_name: chatapp-notification-service
+    restart: unless-stopped
+    environment:
+      SERVER_PORT: ${NOTIFICATION_SERVICE_PORT:-8083}
+      DB_URL: jdbc:postgresql://postgres:5432/notification_db
+      DB_USERNAME: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      JWT_ISSUER_URI: ${BACKEND_JWT_ISSUER_URI:-http://host.docker.internal:8080/realms/chatapp}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+    ports:
+      - "${NOTIFICATION_SERVICE_PORT:-8083}:8083"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+      kafka:
+        condition: service_started
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    container_name: chatapp-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      user-service:
+        condition: service_started
+      chat-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    container_name: chatapp-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_started
+
+volumes:
+  postgres_data:
+  kafka_data:
+  grafana_data:
