@@ -1,0 +1,11 @@
+services:
+  frontend: {}
+  user-service: {}
+  chat-service: {}
+  notification-service: {}
+  keycloak: {}
+  postgres: {}
+  kafka: {}
+  prometheus: {}
+  grafana: {}
+
