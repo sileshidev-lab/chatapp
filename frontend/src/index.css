@@ -1,0 +1,40 @@
+:root {
+  color-scheme: light;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #10211b;
+  background:
+    radial-gradient(circle at top left, rgba(255, 215, 121, 0.35), transparent 30%),
+    radial-gradient(circle at top right, rgba(31, 160, 127, 0.18), transparent 35%),
+    linear-gradient(180deg, #f7f3e9 0%, #eef4ef 100%);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+code,
+pre {
+  font: inherit;
+}
+
+code,
+pre {
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+}
+
+#root {
+  min-height: 100vh;
+}
