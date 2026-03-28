@@ -1,0 +1,4 @@
+CREATE DATABASE keycloak_db;
+CREATE DATABASE user_db;
+CREATE DATABASE chat_db;
+CREATE DATABASE notification_db;
